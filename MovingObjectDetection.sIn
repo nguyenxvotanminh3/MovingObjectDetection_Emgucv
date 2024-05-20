@@ -1,0 +1,134 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using Emgu.CV;
+using Emgu.CV.Structure;
+using Emgu.CV.CvEnum;
+using Emgu.CV.BgSegm;
+using Emgu.CV.Util;
+
+namespace MovingObject
+{
+    public partial class Form1 : Form
+    {
+        private VideoCapture capture;
+        private Timer timer;
+        private BackgroundSubtractorMOG2 backgroundSubtractor;
+        private int objectCount; // Biến đếm số lượng vật thể chuyển động
+
+        // Assumptions for speed calculation
+        private double distanceToObject = 5.0; // Distance from camera to objects in meters
+        private double fieldOfView = 60.0; // Field of view of the camera in degrees
+
+        public Form1()
+        {
+            InitializeComponent();
+            timer = new Timer();
+            timer.Interval = 30; // Set the interval to approximately 30 frames per second
+            timer.Tick += Timer_Tick;
+            backgroundSubtractor = new BackgroundSubtractorMOG2();
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                OpenFileDialog dialog = new OpenFileDialog();
+                dialog.Filter = "Video Files (*.mp4;*.avi;)|*.mp4;*.avi;";
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    capture = new VideoCapture(dialog.FileName);
+                    if (capture != null)
+                    {
+                        timer.Start();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+        private void Timer_Tick(object sender, EventArgs e)
+        {
+            if (capture != null && capture.IsOpened)
+            {
+                Mat frame = new Mat();
+                capture.Read(frame);
+                if (!frame.IsEmpty)
+                {
+                    Mat fgMask = new Mat();
+                    backgroundSubtractor.Apply(frame, fgMask);
+
+                    // Find contours
+                    using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+                    {
+                        CvInvoke.FindContours(fgMask, contours, null, RetrType.External, ChainApproxMethod.ChainApproxSimple);
+
+                        // Reset object count
+                        objectCount = 0;
+
+                        // Draw rectangles around detected moving objects
+                        for (int i = 0; i < contours.Size; i++)
+                        {
+                            using (VectorOfPoint contour = contours[i])
+                            {
+                                // Calculate the area of the contour
+                                double area = CvInvoke.ContourArea(contour);
+
+                                // Filter out small contours
+                                if (area > 500) // Thresh hold
+                                {
+                                    // Draw rectangle around the moving object
+                                    Rectangle rect = CvInvoke.BoundingRectangle(contour);
+                                    CvInvoke.Rectangle(frame, rect, new MCvScalar(0, 255, 0), 2);
+
+                                    // Increment object count
+                                    objectCount++;
+                                    label2.Text = "Object count : " + objectCount; 
+                                }
+                                else
+                                {
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
+                    // Update label with traffic flow information
+                    if (objectCount > 20)
+                    {   
+                        label1.Text = "Traffic Flow: Crowded";
+                    }
+                    else
+                    {
+                        label1.Text = "Traffic Flow: Normal";
+                    }
+
+                    pictureBox1.Image = frame.Bitmap;
+                }
+                else
+                {
+                    timer.Stop(); // Stop the timer if no more frames are available
+                }
+            }
+        }
+
+        
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            timer.Stop();
+            capture?.Dispose();
+        }
+
+     
+
+        private void pictureBox2_Click(object sender, EventArgs e)
+        {
+            Application.Exit();
+        }
+    }
+}
